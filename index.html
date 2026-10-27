@@ -677,8 +677,8 @@ input:focus,select:focus,textarea:focus{outline-color:var(--ttt-primary);}
       '<div class="row">그림 덮기 <input type="range" data-f="bgDim" min="0" max="85" value="' + (KD.bgDim || 0) + '"> <span id="kdDimV">' + (KD.bgDim || 0) + '%</span></div><div class="hint">바탕색으로 살짝 덮어서 글씨가 잘 보이게 해요 · 그림은 자동으로 작게 줄여 저장돼요</div>';
     h += '<div class="sec">글자 <button class="btn" data-k="deftext" style="float:right;padding:4px 10px;font-size:12px">↺ 기본 글자로</button></div>' +
       KD_TEXTS.map(function (x) { return '<label class="f">' + x[1] + (x[2] ? ' <span class="hint">' + esc(x[2]) + '</span>' : '') + '<input data-f="' + x[0] + '" value="' + esc(KD[x[0]] || '') + '" maxlength="80"></label>'; }).join('');
-    h += '<div class="sec">보이기</div>' + [['showClock', '시계·날짜'], ['showPoints', '출석 결과에 칭찬 점수'], ['showQr', 'QR카드 칸 (카메라)'], ['showNum', '번호 입력 칸'], ['swipe', '↔ 두 화면 넘기기 (QR 화면 ↔ 번호 화면, 옆으로 밀기)']].map(function (x) {
-      var ck = x[0] === 'swipe' ? KD.swipe === true : KD[x[0]] !== false;   // 두 화면 넘기기는 기본 꺼짐
+    h += '<div class="sec">보이기</div>' + [['showClock', '시계·날짜'], ['showPoints', '출석 결과에 칭찬 점수'], ['showQr', 'QR카드 칸 (카메라)'], ['showNum', '번호 입력 칸'], ['swipe', '↔ 두 화면 넘기기 (QR 화면 ↔ 번호 화면, 옆으로 밀기)'], ['boardIdle', '📺 대기 중 칭찬 전광판 (1분 동안 아무도 안 쓰면)']].map(function (x) {
+      var ck = (x[0] === 'swipe' || x[0] === 'boardIdle') ? KD[x[0]] === true : KD[x[0]] !== false;   // 두 화면 넘기기·대기 전광판은 기본 꺼짐
       return '<label class="f"><input type="checkbox" data-b="' + x[0] + '"' + (ck ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('');
     // 🔊 목소리
     h += '<div class="sec">🔊 목소리</div>' +
@@ -884,6 +884,45 @@ input:focus,select:focus,textarea:focus{outline-color:var(--ttt-primary);}
   }
   if (window.KC && KC.cfg) window.kSwipeApply(KC.cfg);
   window.addEventListener('resize', function () { if (on()) go(cur(), false); });
+})();
+</script>
+<!-- 📺 대기 중 칭찬 전광판 (화면 꾸미기 → 보이기 → '대기 중 칭찬 전광판'): 1분 동안 아무도 안 쓰면 전광판, 누르거나 QR을 비추면 출석 화면 -->
+<style>
+  #kbIdle { display:none; position:fixed; inset:0; z-index:40; background:#111; }
+  #kbIdle.show { display:block; }
+  #kbIdle iframe { width:100%; height:100%; border:0; display:block; }
+  #kbIdle .tap { position:absolute; inset:0; background:transparent; }
+  #kbIdle .hint { position:absolute; left:50%; bottom:18px; transform:translateX(-50%); background:rgba(0,0,0,.55); color:#fff; font-size:18px; font-weight:700; padding:10px 22px; border-radius:999px; pointer-events:none; animation:kbBlink 2.4s ease-in-out infinite; white-space:nowrap; }
+  @keyframes kbBlink { 0%,100% { opacity:.45; } 50% { opacity:1; } }
+</style>
+<div id="kbIdle"><div class="tap"></div><div class="hint">👆 화면을 누르거나 QR카드를 비추면 출석할 수 있어요</div></div>
+<script>
+(function () {
+  var box = document.getElementById('kbIdle'), timer = null, WAIT = 60000;
+  function url() {
+    if (window.KT_API) return KT_API + '?mode=board';                 // 태블릿(GitHub) 버전
+    return (typeof KB_BOARD !== 'undefined' && KB_BOARD) || '';       // 앱 키오스크
+  }
+  function cfgOn() { var c = window.KC && KC.cfg; return !!(c && c.boardIdle === true) && !(typeof KMANAGE !== 'undefined' && KMANAGE); }
+  function busyNow() {
+    if (document.querySelector('.ov.show')) return true;               // 확인 중·이름 선택·결과 창
+    var q = document.getElementById('qrPage'), d = document.getElementById('kdPanel'), s = document.getElementById('ktSet');
+    return (q && q.style.display === 'block') || (d && d.style.display === 'block') || !!s || (typeof num !== 'undefined' && num);
+  }
+  function show() {
+    if (!cfgOn() || !url()) return;
+    if (busyNow()) { arm(); return; }
+    if (!box.querySelector('iframe')) { var f = document.createElement('iframe'); f.src = url(); f.setAttribute('title', '칭찬 전광판'); box.insertBefore(f, box.firstChild); }
+    box.classList.add('show');
+  }
+  function hide() { box.classList.remove('show'); arm(); }
+  function arm() { clearTimeout(timer); if (cfgOn()) timer = setTimeout(show, WAIT); }
+  window.kbIdleHide = hide;
+  box.querySelector('.tap').addEventListener('click', hide);
+  ['pointerdown', 'keydown', 'touchstart'].forEach(function (t) { document.addEventListener(t, function () { if (!box.classList.contains('show')) arm(); }, true); });
+  if (typeof lookup === 'function') { var lk = lookup; lookup = function (t) { if (box.classList.contains('show')) box.classList.remove('show'); arm(); return lk.apply(this, arguments); }; }   // 전광판 중에도 QR을 비추면 바로 출석
+  if (typeof applyKiosk === 'function') { var ak = applyKiosk; applyKiosk = function (cfg) { ak(cfg); if (!cfgOn()) box.classList.remove('show'); arm(); }; }
+  arm();
 })();
 </script>
 </body>
