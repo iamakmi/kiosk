@@ -461,6 +461,7 @@ input:focus,select:focus,textarea:focus{outline-color:var(--ttt-primary);}
     if (KC && KC.cfg && KC.cfg.beepOn === false) return;   // 🔊 삐 소리 끔
     try {
       actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.state === 'suspended' && actx.resume) actx.resume();
       var o = actx.createOscillator(), g = actx.createGain();
       o.frequency.value = f; o.connect(g); g.connect(actx.destination);
       g.gain.setValueAtTime(.25, actx.currentTime); g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + .35);
@@ -484,6 +485,21 @@ input:focus,select:focus,textarea:focus{outline-color:var(--ttt-primary);}
     } catch (e) {}
   }
   try { speechSynthesis.getVoices(); } catch (e) {}   // 목소리 목록 미리 불러오기
+  // 🔓 iPad(iOS) 소리 잠금 풀기: 터치하는 순간에만 소리를 켤 수 있어서, 첫 터치 때 미리 켜 둠
+  var sndUnlocked = false;
+  function unlockSound() {
+    if (sndUnlocked) return;
+    try {
+      actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+      if (actx.resume) actx.resume();
+      var b = actx.createBuffer(1, 1, 22050), s = actx.createBufferSource();   // 무음 1샘플 재생
+      s.buffer = b; s.connect(actx.destination); s.start(0);
+    } catch (e) {}
+    try { var u = new SpeechSynthesisUtterance(' '); u.volume = 0; speechSynthesis.speak(u); } catch (e) {}   // 무음 목소리 1회
+    sndUnlocked = !actx || actx.state === 'running';   // 아직 안 풀렸으면 다음 터치 때 다시 시도
+    if (sndUnlocked) ['touchend', 'click', 'keydown'].forEach(function (t) { document.removeEventListener(t, unlockSound, true); });
+  }
+  ['touchend', 'click', 'keydown'].forEach(function (t) { document.addEventListener(t, unlockSound, true); });
 
   // ── QR 카메라 ──
   function camMsg(t) { var m = document.getElementById('camMsg'); m.textContent = t; m.style.display = t ? 'block' : 'none'; }
