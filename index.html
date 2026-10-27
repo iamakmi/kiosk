@@ -677,8 +677,9 @@ input:focus,select:focus,textarea:focus{outline-color:var(--ttt-primary);}
       '<div class="row">그림 덮기 <input type="range" data-f="bgDim" min="0" max="85" value="' + (KD.bgDim || 0) + '"> <span id="kdDimV">' + (KD.bgDim || 0) + '%</span></div><div class="hint">바탕색으로 살짝 덮어서 글씨가 잘 보이게 해요 · 그림은 자동으로 작게 줄여 저장돼요</div>';
     h += '<div class="sec">글자 <button class="btn" data-k="deftext" style="float:right;padding:4px 10px;font-size:12px">↺ 기본 글자로</button></div>' +
       KD_TEXTS.map(function (x) { return '<label class="f">' + x[1] + (x[2] ? ' <span class="hint">' + esc(x[2]) + '</span>' : '') + '<input data-f="' + x[0] + '" value="' + esc(KD[x[0]] || '') + '" maxlength="80"></label>'; }).join('');
-    h += '<div class="sec">보이기</div>' + [['showClock', '시계·날짜'], ['showPoints', '출석 결과에 칭찬 점수'], ['showQr', 'QR카드 칸 (카메라)'], ['showNum', '번호 입력 칸']].map(function (x) {
-      return '<label class="f"><input type="checkbox" data-b="' + x[0] + '"' + (KD[x[0]] !== false ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('');
+    h += '<div class="sec">보이기</div>' + [['showClock', '시계·날짜'], ['showPoints', '출석 결과에 칭찬 점수'], ['showQr', 'QR카드 칸 (카메라)'], ['showNum', '번호 입력 칸'], ['swipe', '↔ 두 화면 넘기기 (QR 화면 ↔ 번호 화면, 옆으로 밀기)']].map(function (x) {
+      var ck = x[0] === 'swipe' ? KD.swipe === true : KD[x[0]] !== false;   // 두 화면 넘기기는 기본 꺼짐
+      return '<label class="f"><input type="checkbox" data-b="' + x[0] + '"' + (ck ? ' checked' : '') + '> ' + x[1] + '</label>'; }).join('');
     // 🔊 목소리
     h += '<div class="sec">🔊 목소리</div>' +
       '<label class="f"><input type="checkbox" data-b="voiceOn"' + (KD.voiceOn !== false ? ' checked' : '') + '> 음성 안내 (이름 불러주기)</label>' +
@@ -834,6 +835,56 @@ input:focus,select:focus,textarea:focus{outline-color:var(--ttt-primary);}
   // 화면 꺼짐 방지 (지원하는 기기만)
   function ktWake() { try { if (navigator.wakeLock && document.visibilityState === 'visible') navigator.wakeLock.request('screen').catch(function () {}); } catch (e) {} }
   ktWake(); document.addEventListener('visibilitychange', ktWake);
+</script>
+<!-- ↔ 두 화면 넘기기 (화면 꾸미기 → 보이기 → '두 화면 넘기기'): QR 화면 ↔ 번호 화면을 옆으로 밀어서 바꿈 -->
+<style>
+  #kswTabs { display:none; position:fixed; left:50%; bottom:12px; transform:translateX(-50%); z-index:5; gap:8px; background:rgba(255,255,255,.92); padding:6px; border-radius:999px; box-shadow:0 4px 16px rgba(0,0,0,.15); }
+  #kswTabs button { border:0; background:transparent; font-family:inherit; font-size:18px; font-weight:900; color:#636e72; padding:10px 22px; border-radius:999px; }
+  #kswTabs button.on { background:var(--main); color:#fff; }
+  body.kswipe #kswTabs { display:flex; }
+  body.kswipe main { flex-direction:row !important; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; scrollbar-width:none; gap:0 !important; padding:24px 0 !important; height:calc(100vh - 84px - 70px) !important; }
+  body.kswipe main::-webkit-scrollbar { display:none; }
+  body.kswipe main .panel { flex:0 0 calc(100% - 48px); margin:0 24px; scroll-snap-align:center; scroll-snap-stop:always; }
+  body.kswipe main .panel.off { display:none; }
+  @media (orientation:portrait), (max-width:820px) {
+    body.kswipe main { padding:14px 0 !important; height:calc(100vh - 70px - 70px) !important; }
+    body.kswipe main .panel { flex-basis:calc(100% - 28px); margin:0 14px; }
+    body.kswipe .cam { max-height:none; }
+  }
+</style>
+<div id="kswTabs"><button type="button" data-ksw="pQr">📷 QR카드</button><button type="button" data-ksw="pNum">🔢 번호 입력</button></div>
+<script>
+(function () {
+  var main = document.querySelector('main'), tabs = document.getElementById('kswTabs'), idle = null;
+  if (!main || !document.getElementById('pQr') || !document.getElementById('pNum')) return;
+  function on() { return document.body.classList.contains('kswipe'); }
+  function cur() { var p = document.getElementById('pNum'); return main.scrollLeft > (p.offsetLeft - main.offsetLeft) / 2 ? 'pNum' : 'pQr'; }
+  function mark() { var c = cur(); Array.prototype.forEach.call(tabs.querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-ksw') === c); }); }
+  function go(id, smooth) {
+    var p = document.getElementById(id); if (!p) return;
+    var x = p.offsetLeft - main.offsetLeft - (main.clientWidth - p.offsetWidth) / 2;
+    try { main.scrollTo({ left: x, behavior: smooth === false ? 'auto' : 'smooth' }); } catch (e) { main.scrollLeft = x; }
+  }
+  function kick() {   // 번호 화면에서 45초 동안 아무것도 안 하면 QR 화면으로 돌아감
+    clearTimeout(idle);
+    if (on()) idle = setTimeout(function () { if (cur() === 'pNum') go('pQr'); }, 45000);
+  }
+  tabs.addEventListener('click', function (e) { var b = e.target.closest('[data-ksw]'); if (b) { go(b.getAttribute('data-ksw')); kick(); } });
+  main.addEventListener('scroll', function () { mark(); kick(); }, { passive: true });
+  document.addEventListener('pointerdown', kick, true);
+  window.kSwipeApply = function (cfg) {
+    var want = !!(cfg && cfg.swipe === true && cfg.showQr !== false && cfg.showNum !== false);
+    if (want === on()) return;
+    document.body.classList.toggle('kswipe', want);
+    if (want) { setTimeout(function () { go('pQr', false); mark(); }, 30); kick(); }
+  };
+  if (typeof applyKiosk === 'function') {
+    var orig = applyKiosk;
+    applyKiosk = function (cfg) { orig(cfg); window.kSwipeApply(cfg); };
+  }
+  if (window.KC && KC.cfg) window.kSwipeApply(KC.cfg);
+  window.addEventListener('resize', function () { if (on()) go(cur(), false); });
+})();
 </script>
 </body>
 </html>
